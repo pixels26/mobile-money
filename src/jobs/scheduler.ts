@@ -35,6 +35,7 @@ import { runDlqCleanupJob } from "../queue/dlq";
 import { runHighValueComplianceReportJob } from "./highValueComplianceReportJob";
 import { runStellarReconciliationJob } from "../workers/stellarReconciliation";
 import { runAirtelReconciliationWorker } from "../workers/airtelReconciliation";
+import { withJobTrace } from "../queue/jobTracing";
 
 interface JobConfig {
   name: string;
@@ -252,7 +253,18 @@ const JOBS: JobConfig[] = [
 async function runJob(job: JobConfig): Promise<void> {
   console.log(`[${job.name}] Starting job`);
   try {
-    await job.handler();
+    // Wrap every scheduled job in an OTel span so cron-driven work shows up in
+    // the same trace waterfall as HTTP-triggered activity.
+    await withJobTrace(
+      `scheduler.${job.name}`,
+      undefined,
+      () => job.handler(),
+      {
+        "job.name": job.name,
+        "job.schedule": job.schedule,
+        "job.source": "cron",
+      },
+    );
     console.log(`[${job.name}] Completed`);
   } catch (err) {
     logger.error(`[${job.name}] Failed:`, err);

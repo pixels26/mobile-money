@@ -1,5 +1,6 @@
 import {
   Registry,
+  RegistryContentType,
   Counter,
   Histogram,
   Gauge,
@@ -8,6 +9,17 @@ import {
 } from "prom-client";
 
 const register = new Registry();
+
+// Exemplars (trace_id / span_id attached to latency histograms) are only
+// serialized in the OpenMetrics exposition format. Opt-in because it changes
+// the /metrics content type from text/plain 0.0.4 to application/openmetrics-text.
+if (process.env.METRICS_OPENMETRICS === "true") {
+  // prom-client types `Registry` as Prometheus-text by default; the runtime
+  // accepts either content type.
+  (register as unknown as Registry<RegistryContentType>).setContentType(
+    Registry.OPENMETRICS_CONTENT_TYPE,
+  );
+}
 
 // Add default metrics (CPU, Memory, etc.)
 collectDefaultMetrics({ register });

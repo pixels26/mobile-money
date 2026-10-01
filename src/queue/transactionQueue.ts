@@ -1,5 +1,6 @@
 import { Queue } from "bullmq";
 import { queueOptions } from "./config";
+import { injectTraceContext } from "./jobTracing";
 import { TransactionModel, TransactionStatus } from "../models/transaction";
 
 export const TRANSACTION_QUEUE_NAME = "transaction-processing-queue";
@@ -18,6 +19,8 @@ export interface TransactionJobData {
   clientIp?: string;
   requestId?: string;
   _traceId?: string;
+  /** Serialized W3C `traceparent` injected at enqueue time (see queue/jobTracing). */
+  _traceparent?: string;
 }
 
 export interface TransactionJobResult {
@@ -66,12 +69,18 @@ export async function addTransactionJob(
     jobId?: string;
   },
 ): Promise<{ id: string | undefined }> {
-  const job = await transactionQueue.add(TRANSACTION_JOB_NAME, data, {
-    jobId: options?.jobId ?? data.transactionId,
-    priority: options?.priority,
-    delay: options?.delay,
-    repeat: options?.repeat,
-  });
+  // Embed the active OpenTelemetry context so the worker continues the same
+  // distributed trace (HTTP → queue → processor).
+  const job = await transactionQueue.add(
+    TRANSACTION_JOB_NAME,
+    injectTraceContext(data),
+    {
+      jobId: options?.jobId ?? data.transactionId,
+      priority: options?.priority,
+      delay: options?.delay,
+      repeat: options?.repeat,
+    },
+  );
 
   return { id: job.id ?? data.transactionId };
 }
