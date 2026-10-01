@@ -47,6 +47,7 @@ import { adminRoutes } from "./routes/admin";
 import kycTierUpgradeRoutes from "./routes/kycTierUpgradeRoutes";
 import { userRoutes } from "./routes/users";
 import { createError, errorHandler } from "./middleware/errorHandler";
+import { slidingRateLimiter } from "./middleware/slidingRateLimiter";
 import {
   connectRedis,
   disconnectRedis,
@@ -455,6 +456,11 @@ app.use("/api/cross-chain", crossChainRouter);
 app.use("/api/stellar", stellarRouter);
 app.use("/api/reconciliation", reconciliationRoutes);
 app.use("/api/exchange-rate-buffers", exchangeRateBufferRoutes);
+app.use("/api/rates", slidingRateLimiter({
+  windowMs: 60 * 1000,
+  anonymousLimit: 60,
+  authenticatedLimit: 600,
+}));
 app.use("/api/admin/assets", adminAssetRoutes);
 app.use("/api/settings", settingsRoutes);
 app.use("/api/statements", statementsRoutes);
