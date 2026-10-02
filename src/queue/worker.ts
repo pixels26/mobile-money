@@ -1,9 +1,15 @@
+// Tracer must be imported before any other module so HTTP/DB/Redis spans are
+// instrumented in this worker process as well (the standalone worker entry
+// point is `node dist/src/queue/worker.js`).
+import "../tracer";
+
 import { Worker } from "bullmq";
 import {
   TransactionJobData,
   TransactionJobResult,
   TRANSACTION_QUEUE_NAME,
 } from "./transactionQueue";
+import { withJobTrace } from "./jobTracing";
 import { rabbitMQManager, EXCHANGES, ROUTING_KEYS } from "./rabbitmq";
 import {
   natsManager,
@@ -665,7 +671,17 @@ if (NATS_QUEUE_ENABLED) {
       NATS_DURABLE_CONSUMER,
       NATS_CONSUMER_GROUP,
       async (data) => {
-        await processTransaction(data);
+        await withJobTrace(
+          "queue.transaction.process",
+          data,
+          () => processTransaction(data),
+          {
+            "messaging.system": "nats",
+            "messaging.destination.name": NATS_SUBJECT,
+            "transaction.id": data.transactionId,
+            "transaction.type": data.type,
+          },
+        );
       },
       CONCURRENCY,
     )
@@ -684,7 +700,21 @@ export const transactionWorker:
     }
   : new Worker<TransactionJobData, TransactionJobResult>(
       TRANSACTION_QUEUE_NAME,
-      async (job) => processTransaction(job.data),
+      async (job) =>
+        withJobTrace(
+          "queue.transaction.process",
+          job.data,
+          () => processTransaction(job.data),
+          {
+            "messaging.system": "bullmq",
+            "messaging.destination.name": TRANSACTION_QUEUE_NAME,
+            "messaging.message.id": job.id ?? "",
+            "job.name": job.name,
+            "job.attempt": job.attemptsMade + 1,
+            "transaction.id": job.data.transactionId,
+            "transaction.type": job.data.type,
+          },
+        ),
       { ...queueOptions, concurrency: CONCURRENCY },
     );
 
